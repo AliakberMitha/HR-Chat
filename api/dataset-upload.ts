@@ -1,16 +1,16 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
-import { verifyToken } from "./_lib/auth";
+import { verifyToken } from "./lib/auth";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "POST") {
-    res.status(405).json({ error: "Method not allowed" });
-    return;
-  }
-
-  const body = req.body as HandleUploadBody;
-
   try {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    const body = req.body as HandleUploadBody;
+
     const jsonResponse = await handleUpload({
       body,
       request: req,
@@ -27,6 +27,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
     res.status(200).json(jsonResponse);
   } catch (error) {
+    console.error("dataset-upload failed:", error);
     res.status(400).json({ error: error instanceof Error ? error.message : "Upload failed." });
   }
 }
