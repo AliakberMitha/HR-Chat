@@ -1,27 +1,28 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { list } from "@vercel/blob";
 
-export default async function handler(request: Request): Promise<Response> {
-  if (request.method !== "GET") {
-    return new Response("Method not allowed", { status: 405 });
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "GET") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
 
   try {
     const { blobs } = await list({ prefix: "current-dataset.json", limit: 1 });
     const pointer = blobs.find((b) => b.pathname === "current-dataset.json");
     if (!pointer) {
-      return Response.json({ error: "No dataset has been uploaded yet." }, { status: 404 });
+      res.status(404).json({ error: "No dataset has been uploaded yet." });
+      return;
     }
 
-    const res = await fetch(pointer.url, { cache: "no-store" });
-    if (!res.ok) {
-      return Response.json({ error: "Failed to read the dataset pointer." }, { status: 502 });
+    const blobRes = await fetch(pointer.url, { cache: "no-store" });
+    if (!blobRes.ok) {
+      res.status(502).json({ error: "Failed to read the dataset pointer." });
+      return;
     }
-    const data = await res.json();
-    return Response.json(data);
+    const data = await blobRes.json();
+    res.status(200).json(data);
   } catch (err) {
-    return Response.json(
-      { error: err instanceof Error ? err.message : "Failed to look up the dataset." },
-      { status: 500 },
-    );
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to look up the dataset." });
   }
 }

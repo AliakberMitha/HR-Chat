@@ -1,28 +1,23 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { put } from "@vercel/blob";
 import { verifyToken } from "./_lib/auth";
 
-export default async function handler(request: Request): Promise<Response> {
-  if (request.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
 
-  let token: string | undefined;
-  let url: string | undefined;
-  let meta: unknown;
-  try {
-    const body = await request.json();
-    token = body?.token;
-    url = body?.url;
-    meta = body?.meta;
-  } catch {
-    return Response.json({ error: "Invalid request body." }, { status: 400 });
-  }
+  const body = req.body as { token?: string; url?: string; meta?: unknown } | undefined;
+  const { token, url, meta } = body ?? {};
 
   if (!verifyToken(token)) {
-    return Response.json({ error: "Unauthorized: admin session is missing or expired." }, { status: 401 });
+    res.status(401).json({ error: "Unauthorized: admin session is missing or expired." });
+    return;
   }
   if (typeof url !== "string" || !meta || typeof meta !== "object") {
-    return Response.json({ error: "Missing url or meta." }, { status: 400 });
+    res.status(400).json({ error: "Missing url or meta." });
+    return;
   }
 
   await put("current-dataset.json", JSON.stringify({ url, meta }), {
@@ -32,5 +27,5 @@ export default async function handler(request: Request): Promise<Response> {
     contentType: "application/json",
   });
 
-  return Response.json({ ok: true });
+  res.status(200).json({ ok: true });
 }

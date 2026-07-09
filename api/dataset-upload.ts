@@ -1,17 +1,19 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { verifyToken } from "./_lib/auth";
 
-export default async function handler(request: Request): Promise<Response> {
-  if (request.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
 
-  const body = (await request.json()) as HandleUploadBody;
+  const body = req.body as HandleUploadBody;
 
   try {
     const jsonResponse = await handleUpload({
       body,
-      request,
+      request: req,
       onBeforeGenerateToken: async (_pathname, clientPayload) => {
         if (!verifyToken(clientPayload)) {
           throw new Error("Unauthorized: admin session is missing or expired. Please log in again.");
@@ -23,11 +25,8 @@ export default async function handler(request: Request): Promise<Response> {
         };
       },
     });
-    return Response.json(jsonResponse);
+    res.status(200).json(jsonResponse);
   } catch (error) {
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Upload failed." },
-      { status: 400 },
-    );
+    res.status(400).json({ error: error instanceof Error ? error.message : "Upload failed." });
   }
 }
