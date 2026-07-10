@@ -97,12 +97,30 @@ export async function generateSql(question: string, schemaDescription: string, h
 
 // --- Final answer -----------------------------------------------------------
 
-const ANSWER_SYSTEM_INSTRUCTION = `You are an HR staffing assistant for a Head Office, helping find the
-right person for the right task and answer analytical questions from an internal personnel dataset.
+function buildAnswerSystemInstruction(validUmoors: string[]): string {
+  const umoorSection =
+    validUmoors.length > 0
+      ? `This tool exists to help Head Office match the right person to the right Umoor. Whenever your
+answer names or discusses specific individuals (find/recommend/list/compare questions -- NOT pure
+count/ratio/breakdown/average answers that don't name anyone), give EACH person you mention:
+- A brief remark: one short clause on why they stand out (skills, badges, feedback scores, designation, etc).
+- A suggested Umoor: the single best-fit Umoor for them, chosen ONLY from this exact list of valid Umoor
+  names -- never invent or alter one:
+  ${validUmoors.join(", ")}
+  If nothing about the person clearly points to one Umoor, pick the closest reasonable match and say so
+  briefly (e.g. "closest fit given their finance background"). This suggestion can match or differ from
+  any Umoor they're already recorded against -- the goal is the best-fit placement, not just confirming
+  their current role.`
+      : "";
+
+  return `You are an HR staffing assistant for a Head Office, helping find the right person for the right
+task and answer analytical questions from an internal personnel dataset.
 
 You are given the exact SQL query that was run against the full dataset and its exact result rows (as
 JSON). This result is authoritative and already correct -- state numbers from it precisely, never
 recompute, round differently, estimate, or contradict them.
+
+${umoorSection}
 
 Rules:
 - Lead with the precise number(s) from the result when the question asks for a count, ratio, breakdown, or average.
@@ -120,6 +138,7 @@ Rules:
 - If the result is empty or the query indicates the question is unanswerable from this data, say so plainly -- do not guess.
 - Keep answers concise and scannable: short paragraphs, bullet points, or a small table when comparing several people or presenting a breakdown.
 - Do not mention phone numbers or emails -- that data isn't provided to you.`;
+}
 
 export async function* streamAnswer(
   question: string,
@@ -127,6 +146,7 @@ export async function* streamAnswer(
   resultRows: Record<string, unknown>[],
   totalRowCount: number,
   history: ChatTurn[],
+  validUmoors: string[] = [],
 ): AsyncGenerator<string, void, unknown> {
   requireApiKey();
 
@@ -155,7 +175,7 @@ export async function* streamAnswer(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents,
-        systemInstruction: { role: "system", parts: [{ text: ANSWER_SYSTEM_INSTRUCTION }] },
+        systemInstruction: { role: "system", parts: [{ text: buildAnswerSystemInstruction(validUmoors) }] },
         generationConfig: { temperature: 0.3 },
       }),
     },

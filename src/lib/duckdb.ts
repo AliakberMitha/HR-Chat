@@ -184,3 +184,11 @@ export async function runSql(sql: string): Promise<SqlQueryResult> {
   });
   return { columns: table.schema.fields.map((f) => f.name), rows };
 }
+
+export async function getDistinctUmoors(): Promise<string[]> {
+  if (!conn) return [];
+  const result = await runSql(
+    "SELECT DISTINCT umoor FROM assignments WHERE umoor IS NOT NULL AND umoor != '' ORDER BY umoor",
+  );
+  return result.rows.map((r) => String(r.umoor)).filter(Boolean);
+}

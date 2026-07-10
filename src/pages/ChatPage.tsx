@@ -4,7 +4,7 @@ import { AnimatePresence } from "framer-motion";
 import { useDatasetStore } from "../store/useDatasetStore";
 import { loadForChat, loadForChatRestricted } from "../lib/loadPipeline";
 import { getColumns, isLoaded } from "../lib/dataset";
-import { getSqlSchemaDescription, runSql, stripTrailingLimit } from "../lib/duckdb";
+import { getSqlSchemaDescription, runSql, stripTrailingLimit, getDistinctUmoors } from "../lib/duckdb";
 import { generateSql, streamAnswer, isGeminiConfigured, type ChatTurn } from "../lib/gemini";
 import { decodeBase64Utf8 } from "../lib/base64";
 import type { ChatMessage } from "../types";
@@ -165,10 +165,11 @@ export default function ChatPage() {
       const totalRowCount = queryResult.rows.length;
       const allRows = queryResult.rows.slice(0, 5000); // sanity cap for the details table / export
       const forAnswer = allRows.slice(0, 200); // keep the Gemini prompt a reasonable size
+      const validUmoors = await getDistinctUmoors().catch(() => []);
 
       try {
         let acc = "";
-        for await (const chunk of streamAnswer(question, sql, forAnswer, totalRowCount, history)) {
+        for await (const chunk of streamAnswer(question, sql, forAnswer, totalRowCount, history, validUmoors)) {
           acc += chunk;
           const snapshot = acc;
           setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: snapshot } : m)));
