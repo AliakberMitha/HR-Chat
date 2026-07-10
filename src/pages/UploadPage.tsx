@@ -162,7 +162,7 @@ export default function UploadPage() {
                 {checkingCurrent
                   ? "Checking published dataset..."
                   : current
-                    ? `Currently published: ${current.meta.fileName} · ${current.meta.personCount.toLocaleString()} people`
+                    ? `Currently published: ${current.meta.fileName} · ${current.meta.personCount != null ? `${current.meta.personCount.toLocaleString()} people` : "please re-upload to refresh stats"}`
                     : "Nothing published yet."}
               </span>
               <button onClick={adminLogout} className="hover:text-zinc-600 dark:hover:text-zinc-300">
