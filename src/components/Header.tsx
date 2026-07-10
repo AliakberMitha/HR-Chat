@@ -1,4 +1,12 @@
-export default function Header({ fileName, personCount }: { fileName?: string; personCount?: number }) {
+export default function Header({
+  fileName,
+  personCount,
+  jamaat,
+}: {
+  fileName?: string;
+  personCount?: number;
+  jamaat?: string;
+}) {
   return (
     <header className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-4 py-3 flex items-center justify-between">
       <div className="flex items-center gap-2.5 min-w-0">
@@ -17,6 +25,11 @@ export default function Header({ fileName, personCount }: { fileName?: string; p
           )}
         </div>
       </div>
+      {jamaat && (
+        <span className="shrink-0 text-xs rounded-lg bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 px-2.5 py-1">
+          Scoped to {jamaat}
+        </span>
+      )}
     </header>
   );
 }

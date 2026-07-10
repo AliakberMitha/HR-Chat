@@ -20,6 +20,11 @@ export function getAllProfiles() {
   return profiles;
 }
 
+export function getProfilesForJamaat(jamaat: string): PersonProfile[] {
+  const target = jamaat.trim().toLowerCase();
+  return profiles.filter((p) => (p.fields.Jamaat ?? "").trim().toLowerCase() === target);
+}
+
 export function isLoaded() {
   return profiles.length > 0;
 }

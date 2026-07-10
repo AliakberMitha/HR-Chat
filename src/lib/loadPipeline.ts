@@ -1,4 +1,4 @@
-import { setDataset, getProfileCount, getColumns, getAllProfiles } from "./dataset";
+import { setDataset, getProfileCount, getColumns, getAllProfiles, getProfilesForJamaat } from "./dataset";
 import { loadProfilesIntoSql } from "./duckdb";
 import { saveDataset, loadDataset } from "./persist";
 import { fetchRemotePointer, downloadRemoteDataset } from "./remoteDataset";
@@ -74,7 +74,7 @@ export async function cacheLocally(meta: DatasetMeta, rows: Record<string, strin
 
 export type ChatLoadResult =
   | { kind: "ready"; meta: DatasetMeta }
-  | { kind: "empty" }
+  | { kind: "empty"; message?: string }
   | { kind: "error"; message: string; hasCache: boolean };
 
 /**
@@ -142,4 +142,58 @@ async function hydrateFromRows(meta: DatasetMeta, rows: Record<string, string>[]
   cb.onStage("indexing", "Loading into the query engine...");
   await loadProfilesIntoSql(getAllProfiles(), getColumns());
   cb.onStage("ready", "Done");
+}
+
+/**
+ * Used when the chat page is opened with a ?jamaat= restriction. This is a
+ * hard boundary, not a prompting convention: only that Jamaat's people are
+ * ever loaded into the query engine, so no SQL Gemini could write can
+ * surface anyone else's data. To back that up, the full dataset is never
+ * written to this browser's IndexedDB cache here (unlike the normal chat
+ * flow) -- otherwise someone could read the unrestricted data straight out
+ * of local storage in DevTools even though the chat UI itself stays scoped.
+ * That trade-off means restricted links always re-fetch fresh from the
+ * server rather than using the fast local cache.
+ */
+export async function loadForChatRestricted(cb: PipelineCallbacks, jamaat: string): Promise<ChatLoadResult> {
+  let pointer;
+  try {
+    cb.onStage("parsing", "Checking for the shared dataset...");
+    pointer = await fetchRemotePointer();
+  } catch (err) {
+    return {
+      kind: "error",
+      message: err instanceof Error ? err.message : "Could not reach the server.",
+      hasCache: false,
+    };
+  }
+
+  if (!pointer) {
+    return { kind: "empty" };
+  }
+
+  try {
+    cb.onStage("parsing", "Downloading the shared dataset...");
+    const { meta, rows } = await downloadRemoteDataset(pointer, (pct) => {
+      cb.onStage("parsing", `Downloading the shared dataset... ${Math.round(pct)}%`);
+    });
+
+    setDataset(meta.columns, rows);
+    const restricted = getProfilesForJamaat(jamaat);
+    if (restricted.length === 0) {
+      return { kind: "empty", message: `No records found for Jamaat "${jamaat}".` };
+    }
+
+    cb.onStage("indexing", "Loading into the query engine...");
+    await loadProfilesIntoSql(restricted, getColumns());
+    cb.onStage("ready", "Done");
+
+    return { kind: "ready", meta: { ...meta, personCount: restricted.length } };
+  } catch (err) {
+    return {
+      kind: "error",
+      message: err instanceof Error ? err.message : "Failed to download the shared dataset.",
+      hasCache: false,
+    };
+  }
 }

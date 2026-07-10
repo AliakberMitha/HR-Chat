@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { useDatasetStore } from "../store/useDatasetStore";
-import { loadForChat } from "../lib/loadPipeline";
+import { loadForChat, loadForChatRestricted } from "../lib/loadPipeline";
 import { getColumns, isLoaded } from "../lib/dataset";
 import { getSqlSchemaDescription, runSql, stripTrailingLimit } from "../lib/duckdb";
 import { generateSql, streamAnswer, isGeminiConfigured, type ChatTurn } from "../lib/gemini";
@@ -19,9 +19,12 @@ type LoadOutcome = "loading" | "ready" | "empty" | "error";
 
 export default function ChatPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const jamaatParam = searchParams.get("jamaat");
   const { meta, setMeta } = useDatasetStore();
   const [outcome, setOutcome] = useState<LoadOutcome>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [emptyMessage, setEmptyMessage] = useState<string | null>(null);
   const [loadLabel, setLoadLabel] = useState("Loading...");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -32,19 +35,21 @@ export default function ChatPage() {
   useEffect(() => {
     let cancelled = false;
     async function ensureData() {
-      if (isLoaded() && meta) {
+      if (!jamaatParam && isLoaded() && meta) {
         setOutcome("ready");
         return;
       }
-      const result = await loadForChat({
-        onStage: (_s, label) => !cancelled && setLoadLabel(label || "Loading..."),
+      const cb = {
+        onStage: (_s: string, label?: string) => !cancelled && setLoadLabel(label || "Loading..."),
         onError: () => {},
-      });
+      };
+      const result = jamaatParam ? await loadForChatRestricted(cb, jamaatParam) : await loadForChat(cb);
       if (cancelled) return;
       if (result.kind === "ready") {
         setMeta(result.meta);
         setOutcome("ready");
       } else if (result.kind === "empty") {
+        setEmptyMessage(result.message ?? null);
         setOutcome("empty");
       } else {
         setLoadError(result.message);
@@ -56,7 +61,7 @@ export default function ChatPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [jamaatParam]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -167,16 +172,18 @@ export default function ChatPage() {
   if (outcome === "empty") {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 px-4 text-center">
-        <h2 className="text-lg font-semibold">No HR data has been published yet</h2>
+        <h2 className="text-lg font-semibold">{emptyMessage ? "No matching records" : "No HR data has been published yet"}</h2>
         <p className="text-sm text-zinc-400 max-w-sm">
-          Ask your administrator to upload the HR dataset before you can start chatting.
+          {emptyMessage ?? "Ask your administrator to upload the HR dataset before you can start chatting."}
         </p>
-        <button
-          onClick={() => navigate("/")}
-          className="mt-2 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 underline"
-        >
-          Are you the admin? Upload data →
-        </button>
+        {!jamaatParam && (
+          <button
+            onClick={() => navigate("/")}
+            className="mt-2 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 underline"
+          >
+            Are you the admin? Upload data →
+          </button>
+        )}
       </div>
     );
   }
@@ -198,7 +205,7 @@ export default function ChatPage() {
 
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <Header fileName={meta?.fileName} personCount={meta?.personCount} />
+      <Header fileName={meta?.fileName} personCount={meta?.personCount} jamaat={jamaatParam ?? undefined} />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-4 min-h-full">
