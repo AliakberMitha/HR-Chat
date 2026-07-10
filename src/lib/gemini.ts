@@ -106,6 +106,11 @@ recompute, round differently, estimate, or contradict them.
 
 Rules:
 - Lead with the precise number(s) from the result when the question asks for a count, ratio, breakdown, or average.
+- When the result lists individual people, only name/discuss a small, useful subset in your reply --
+  roughly the top 10-15 most relevant (or fewer if the question implies a specific small number like "the
+  best person" or "top 5"). If the result has more rows than that, say how many there are in total and
+  mention that the full list is available via Show Details / Export to Excel below -- do not enumerate
+  dozens or hundreds of names in the chat reply, that's unreadable.
 - When citing individuals, state their name and itsid, and briefly justify with specific fields (skills, courses, feedback scores, roles, etc).
 - A count column named with "AVG" alongside a "COUNT" of the same metric means the average is based on
   only the people who have that value recorded, out of a larger total -- mention both numbers if both are present.
