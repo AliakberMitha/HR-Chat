@@ -37,19 +37,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const body = req.body as { token?: string; url?: string; meta?: unknown } | undefined;
-    const { token, url, meta } = body ?? {};
+    const body = req.body as { token?: string; chunkUrls?: unknown; meta?: unknown } | undefined;
+    const { token, chunkUrls, meta } = body ?? {};
 
     if (!verifyToken(token)) {
       res.status(401).json({ error: "Unauthorized: admin session is missing or expired." });
       return;
     }
-    if (typeof url !== "string" || !meta || typeof meta !== "object") {
-      res.status(400).json({ error: "Missing url or meta." });
+    if (
+      !Array.isArray(chunkUrls) ||
+      chunkUrls.length === 0 ||
+      !chunkUrls.every((u) => typeof u === "string") ||
+      !meta ||
+      typeof meta !== "object"
+    ) {
+      res.status(400).json({ error: "Missing chunkUrls or meta." });
       return;
     }
 
-    await put("current-dataset.json", JSON.stringify({ url, meta }), {
+    await put("current-dataset.json", JSON.stringify({ chunkUrls, meta }), {
       access: "public",
       addRandomSuffix: false,
       allowOverwrite: true,

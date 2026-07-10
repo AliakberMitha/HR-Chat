@@ -118,7 +118,9 @@ export async function loadForChat(cb: PipelineCallbacks): Promise<ChatLoadResult
 
   try {
     cb.onStage("parsing", "Downloading the shared dataset...");
-    const { meta, rows } = await downloadRemoteDataset(pointer);
+    const { meta, rows } = await downloadRemoteDataset(pointer, (pct) => {
+      cb.onStage("parsing", `Downloading the shared dataset... ${Math.round(pct)}%`);
+    });
     await hydrateFromRows(meta, rows, cb);
     await saveDataset(meta, rows);
     return { kind: "ready", meta };

@@ -1,11 +1,15 @@
-import { upload } from "@vercel/blob/client";
 import { gzipJson, gunzipJson } from "./compress";
 import { getAdminToken } from "./adminAuth";
 import { parseJsonResponse } from "./apiFetch";
 import type { DatasetMeta } from "../types";
 
+// Rows are uploaded/downloaded in fixed-size chunks, each POSTed straight to our
+// own same-origin API (no cross-origin calls, so no CORS surface at all) and
+// safely under Vercel's ~4.5MB serverless function body limit once gzipped.
+const CHUNK_ROWS = 20000;
+
 export interface RemotePointer {
-  url: string;
+  chunkUrls: string[];
   meta: DatasetMeta;
 }
 
@@ -21,11 +25,18 @@ export async function fetchRemotePointer(): Promise<RemotePointer | null> {
 
 export async function downloadRemoteDataset(
   pointer: RemotePointer,
+  onProgress?: (pct: number) => void,
 ): Promise<{ meta: DatasetMeta; rows: Record<string, string>[] }> {
-  const res = await fetch(pointer.url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to download the dataset (${res.status}).`);
-  const blob = await res.blob();
-  const rows = await gunzipJson<Record<string, string>[]>(blob);
+  const rows: Record<string, string>[] = [];
+  const total = pointer.chunkUrls.length;
+  for (let i = 0; i < total; i++) {
+    const res = await fetch(pointer.chunkUrls[i], { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to download dataset chunk ${i + 1}/${total} (${res.status}).`);
+    const blob = await res.blob();
+    const chunkRows = await gunzipJson<Record<string, string>[]>(blob);
+    rows.push(...chunkRows);
+    onProgress?.(((i + 1) / total) * 100);
+  }
   return { meta: pointer.meta, rows };
 }
 
@@ -37,20 +48,34 @@ export async function uploadRemoteDataset(
   const token = getAdminToken();
   if (!token) throw new Error("You're not signed in as admin.");
 
-  const gz = await gzipJson(rows);
+  const chunks: Record<string, string>[][] = [];
+  for (let i = 0; i < rows.length; i += CHUNK_ROWS) {
+    chunks.push(rows.slice(i, i + CHUNK_ROWS));
+  }
 
-  const result = await upload("dataset.json.gz", gz, {
-    access: "public",
-    handleUploadUrl: "/api/dataset-upload",
-    clientPayload: token,
-    contentType: "application/gzip",
-    onUploadProgress: (event) => onProgress?.(event.percentage),
-  });
+  const chunkUrls: string[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const gz = await gzipJson(chunks[i]);
+    const res = await fetch(`/api/dataset-upload-chunk?index=${i}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        Authorization: `Bearer ${token}`,
+      },
+      body: gz,
+    });
+    const data = await parseJsonResponse<{ url?: string; error?: string }>(res);
+    if (!res.ok || !data.url) {
+      throw new Error(data.error || `Failed to upload chunk ${i + 1}/${chunks.length}.`);
+    }
+    chunkUrls.push(data.url);
+    onProgress?.(((i + 1) / chunks.length) * 100);
+  }
 
   const setRes = await fetch("/api/dataset-set-current", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token, url: result.url, meta }),
+    body: JSON.stringify({ token, chunkUrls, meta }),
   });
   if (!setRes.ok) {
     const data = await parseJsonResponse<{ error?: string }>(setRes).catch(() => ({}) as { error?: string });

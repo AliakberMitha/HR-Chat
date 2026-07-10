@@ -69,7 +69,7 @@ export default function UploadPage() {
 
         setStage("ready", "Done");
         setMeta(parsedMeta);
-        setCurrent({ url: "", meta: parsedMeta });
+        setCurrent({ chunkUrls: [], meta: parsedMeta });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong.");
       }
