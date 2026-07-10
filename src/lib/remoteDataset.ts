@@ -44,7 +44,6 @@ export async function uploadRemoteDataset(
     handleUploadUrl: "/api/dataset-upload",
     clientPayload: token,
     contentType: "application/gzip",
-    multipart: true,
     onUploadProgress: (event) => onProgress?.(event.percentage),
   });
 
