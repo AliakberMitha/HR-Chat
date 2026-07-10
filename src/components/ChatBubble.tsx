@@ -50,11 +50,7 @@ export default function ChatBubble({ message }: { message: ChatMessage }) {
               {showDetails ? "Hide details" : "Show details"}
             </button>
             {showDetails && (
-              <ShowDetailsTable
-                sql={message.sql}
-                resultRows={message.resultRows ?? []}
-                totalRowCount={message.totalRowCount ?? 0}
-              />
+              <ShowDetailsTable resultRows={message.resultRows ?? []} totalRowCount={message.totalRowCount ?? 0} />
             )}
           </div>
         )}

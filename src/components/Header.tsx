@@ -1,8 +1,4 @@
-import { useNavigate } from "react-router-dom";
-import { isAdminAuthed } from "../lib/adminAuth";
-
 export default function Header({ fileName, personCount }: { fileName?: string; personCount?: number }) {
-  const navigate = useNavigate();
   return (
     <header className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-4 py-3 flex items-center justify-between">
       <div className="flex items-center gap-2.5 min-w-0">
@@ -21,12 +17,6 @@ export default function Header({ fileName, personCount }: { fileName?: string; p
           )}
         </div>
       </div>
-      <button
-        onClick={() => navigate("/")}
-        className="shrink-0 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
-      >
-        {isAdminAuthed() ? "Manage data" : "Admin"}
-      </button>
     </header>
   );
 }

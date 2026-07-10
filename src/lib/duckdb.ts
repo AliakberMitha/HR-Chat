@@ -158,6 +158,15 @@ export interface SqlQueryResult {
 
 const READ_ONLY_PREFIX = /^\s*(select|with)\b/i;
 
+// Gemini is instructed to LIMIT "find a person" style queries to keep its own
+// conversational answer readable. That's fine for the chat reply, but the
+// Show Details table / Excel export should reflect every matching row --
+// strip a trailing LIMIT (and OFFSET) so the full result set is available
+// for display/export, independent of what's sent back to the model.
+export function stripTrailingLimit(sql: string): string {
+  return sql.trim().replace(/\s+limit\s+\d+(\s+offset\s+\d+)?\s*$/i, "");
+}
+
 export async function runSql(sql: string): Promise<SqlQueryResult> {
   if (!conn) throw new Error("Dataset not loaded yet.");
   if (!READ_ONLY_PREFIX.test(sql)) {

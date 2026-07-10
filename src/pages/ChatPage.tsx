@@ -4,7 +4,7 @@ import { AnimatePresence } from "framer-motion";
 import { useDatasetStore } from "../store/useDatasetStore";
 import { loadForChat } from "../lib/loadPipeline";
 import { getColumns, isLoaded } from "../lib/dataset";
-import { getSqlSchemaDescription, runSql } from "../lib/duckdb";
+import { getSqlSchemaDescription, runSql, stripTrailingLimit } from "../lib/duckdb";
 import { generateSql, streamAnswer, isGeminiConfigured, type ChatTurn } from "../lib/gemini";
 import type { ChatMessage } from "../types";
 import Header from "../components/Header";
@@ -102,7 +102,10 @@ export default function ChatPage() {
       const columns = getColumns();
       let sql: string;
       try {
-        sql = await generateSql(question, getSqlSchemaDescription(columns), history);
+        const generated = await generateSql(question, getSqlSchemaDescription(columns), history);
+        // Gemini's own LIMIT keeps its conversational answer readable, but
+        // Show Details / export should reflect every matching row.
+        sql = stripTrailingLimit(generated);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to interpret the question.";
         setMessages((prev) =>
@@ -118,29 +121,26 @@ export default function ChatPage() {
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to run the generated query.";
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, isStreaming: false, error: true, content: `${message}\n\nGenerated SQL:\n${sql}`, sql }
-              : m,
-          ),
+          prev.map((m) => (m.id === assistantId ? { ...m, isStreaming: false, error: true, content: message } : m)),
         );
         setSending(false);
         return;
       }
 
       const totalRowCount = queryResult.rows.length;
-      const capped = queryResult.rows.slice(0, 200);
+      const allRows = queryResult.rows.slice(0, 5000); // sanity cap for the details table / export
+      const forAnswer = allRows.slice(0, 200); // keep the Gemini prompt a reasonable size
 
       try {
         let acc = "";
-        for await (const chunk of streamAnswer(question, sql, capped, totalRowCount, history)) {
+        for await (const chunk of streamAnswer(question, sql, forAnswer, totalRowCount, history)) {
           acc += chunk;
           const snapshot = acc;
           setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: snapshot } : m)));
         }
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, isStreaming: false, sql, resultRows: capped, totalRowCount } : m,
+            m.id === assistantId ? { ...m, isStreaming: false, sql, resultRows: allRows, totalRowCount } : m,
           ),
         );
       } catch (err) {
@@ -205,7 +205,7 @@ export default function ChatPage() {
           {messages.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-6 text-center">
               <div>
-                <h2 className="text-xl font-semibold">Find the right person for the job</h2>
+                <h2 className="text-xl font-semibold">Find the right person for the khidmat</h2>
                 <p className="text-sm text-zinc-400 mt-1">Ask about skills, courses, feedback scores — or counts, ratios, and breakdowns across the dataset.</p>
               </div>
               <PromptChips onPick={(t) => { setInput(t); requestAnimationFrame(() => { textareaRef.current?.focus(); autosize(); }); }} />
