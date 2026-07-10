@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { isAdminAuthed } from "../lib/adminAuth";
 
-export default function Header({ fileName, rowCount }: { fileName?: string; rowCount?: number }) {
+export default function Header({ fileName, personCount }: { fileName?: string; personCount?: number }) {
   const navigate = useNavigate();
   return (
     <header className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-4 py-3 flex items-center justify-between">
@@ -16,7 +16,7 @@ export default function Header({ fileName, rowCount }: { fileName?: string; rowC
           <p className="text-sm font-medium leading-tight">HR Talent Chat</p>
           {fileName && (
             <p className="text-xs text-zinc-400 truncate leading-tight">
-              {fileName} · {rowCount?.toLocaleString()} records
+              {fileName} · {personCount?.toLocaleString()} people
             </p>
           )}
         </div>

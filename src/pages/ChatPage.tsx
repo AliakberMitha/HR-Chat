@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { useDatasetStore } from "../store/useDatasetStore";
 import { loadForChat } from "../lib/loadPipeline";
-import { getColumns, isLoaded, searchDataset } from "../lib/dataset";
-import { streamAnswer, isGeminiConfigured, type ChatTurn } from "../lib/gemini";
+import { getColumns, getAllProfiles, isLoaded, searchDataset } from "../lib/dataset";
+import { planQuery, streamAnswer, isGeminiConfigured, type ChatTurn } from "../lib/gemini";
+import { executeQuery, type QueryPlan } from "../lib/queryEngine";
 import type { ChatMessage } from "../types";
 import Header from "../components/Header";
 import ChatBubble from "../components/ChatBubble";
@@ -86,9 +87,6 @@ export default function ChatPage() {
       setSending(true);
       requestAnimationFrame(autosize);
 
-      const { rows: matchedRows, keywords } = searchDataset(question);
-      const columns = getColumns();
-
       if (!isGeminiConfigured()) {
         setMessages((prev) =>
           prev.map((m) =>
@@ -101,7 +99,28 @@ export default function ChatPage() {
         return;
       }
 
-      if (keywords.length === 0 || matchedRows.length === 0) {
+      const columns = getColumns();
+      let plan: QueryPlan;
+      try {
+        plan = await planQuery(question, columns, history);
+      } catch {
+        // Fall back to plain keyword search if the planning call fails for any reason.
+        plan = { intent: "search", keywords: [], filters: [], groupByField: null, metricField: null };
+      }
+
+      const result = executeQuery(plan, getAllProfiles(), columns);
+
+      let sample = result.sample;
+      let keywords = plan.keywords;
+      if (plan.intent === "list" || plan.intent === "search") {
+        const ranked = searchDataset(question);
+        if (ranked.profiles.length > 0) {
+          sample = ranked.profiles;
+          keywords = ranked.keywords.length ? ranked.keywords : keywords;
+        }
+      }
+
+      if (result.totalMatches === 0 && sample.length === 0) {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -120,7 +139,7 @@ export default function ChatPage() {
 
       try {
         let acc = "";
-        for await (const chunk of streamAnswer(question, matchedRows, columns, history)) {
+        for await (const chunk of streamAnswer(question, plan, result, sample, columns, history)) {
           acc += chunk;
           const snapshot = acc;
           setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: snapshot } : m)));
@@ -128,7 +147,17 @@ export default function ChatPage() {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, isStreaming: false, matchedRows, matchedColumns: columns, searchKeywords: keywords }
+              ? {
+                  ...m,
+                  isStreaming: false,
+                  matchedProfiles: sample,
+                  matchedColumns: columns,
+                  searchKeywords: keywords,
+                  totalMatches: result.totalMatches,
+                  breakdown: result.breakdown,
+                  averageField: result.average?.field,
+                  averageValue: result.average?.value,
+                }
               : m,
           ),
         );
@@ -187,7 +216,7 @@ export default function ChatPage() {
 
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <Header fileName={meta?.fileName} rowCount={meta?.rowCount} />
+      <Header fileName={meta?.fileName} personCount={meta?.personCount} />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-4 min-h-full">
@@ -195,7 +224,7 @@ export default function ChatPage() {
             <div className="flex-1 flex flex-col items-center justify-center gap-6 text-center">
               <div>
                 <h2 className="text-xl font-semibold">Find the right person for the job</h2>
-                <p className="text-sm text-zinc-400 mt-1">Ask about skills, courses, designations, or feedback scores.</p>
+                <p className="text-sm text-zinc-400 mt-1">Ask about skills, courses, feedback scores — or counts, ratios, and breakdowns across the dataset.</p>
               </div>
               <PromptChips onPick={(t) => { setInput(t); requestAnimationFrame(() => { textareaRef.current?.focus(); autosize(); }); }} />
             </div>

@@ -1,4 +1,4 @@
-import { setDataset, buildIndex, getRowCount, getColumns } from "./dataset";
+import { setDataset, buildIndex, getProfileCount, getColumns } from "./dataset";
 import { saveDataset, loadDataset } from "./persist";
 import { fetchRemotePointer, downloadRemoteDataset } from "./remoteDataset";
 import type { DatasetMeta } from "../types";
@@ -46,7 +46,8 @@ export function parseFile(file: File, cb: PipelineCallbacks): Promise<ParsedFile
 
             const meta: DatasetMeta = {
               fileName: file.name,
-              rowCount: getRowCount(),
+              rowCount: msg.rows.length,
+              personCount: getProfileCount(),
               columns: getColumns(),
               uploadedAt: Date.now(),
             };

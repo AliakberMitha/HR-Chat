@@ -162,7 +162,7 @@ export default function UploadPage() {
                 {checkingCurrent
                   ? "Checking published dataset..."
                   : current
-                    ? `Currently published: ${current.meta.fileName} · ${current.meta.rowCount.toLocaleString()} records`
+                    ? `Currently published: ${current.meta.fileName} · ${current.meta.personCount.toLocaleString()} people`
                     : "Nothing published yet."}
               </span>
               <button onClick={adminLogout} className="hover:text-zinc-600 dark:hover:text-zinc-300">
@@ -187,7 +187,7 @@ export default function UploadPage() {
                   </div>
                   <h2 className="font-medium">{meta.fileName}</h2>
                   <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-                    {meta.rowCount.toLocaleString()} records · {meta.columns.length} fields — published for everyone
+                    {meta.personCount.toLocaleString()} people ({meta.rowCount.toLocaleString()} role assignments) · {meta.columns.length} fields — published for everyone
                   </p>
                   <button
                     onClick={() => navigate("/chat")}

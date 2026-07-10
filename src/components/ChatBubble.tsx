@@ -38,7 +38,7 @@ export default function ChatBubble({ message }: { message: ChatMessage }) {
           )}
         </div>
 
-        {!isUser && !message.isStreaming && message.matchedRows && message.matchedRows.length > 0 && (
+        {!isUser && !message.isStreaming && message.totalMatches !== undefined && (
           <div className="mt-1.5">
             <button
               onClick={() => setShowDetails((v) => !v)}
@@ -51,9 +51,13 @@ export default function ChatBubble({ message }: { message: ChatMessage }) {
             </button>
             {showDetails && (
               <ShowDetailsTable
-                rows={message.matchedRows}
+                profiles={message.matchedProfiles ?? []}
                 columns={message.matchedColumns ?? []}
                 keywords={message.searchKeywords ?? []}
+                totalMatches={message.totalMatches}
+                breakdown={message.breakdown}
+                averageField={message.averageField}
+                averageValue={message.averageValue}
               />
             )}
           </div>

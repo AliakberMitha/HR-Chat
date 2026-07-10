@@ -28,4 +28,12 @@ export const PROMPT_SUGGESTIONS: PromptSuggestion[] = [
     label: "Well-rounded performers",
     template: "Who are the most well-rounded performers across Leadership, Teamwork, and Dedication feedback?",
   },
+  {
+    label: "Count / ratio",
+    template: "How many people are skilled in [skill], and what's the male-to-female ratio among them?",
+  },
+  {
+    label: "Breakdown by group",
+    template: "Give me a breakdown of how many people belong to each [Umoor/Jamiat/Designation].",
+  },
 ];
