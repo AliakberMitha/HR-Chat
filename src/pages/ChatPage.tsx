@@ -6,6 +6,7 @@ import { loadForChat, loadForChatRestricted } from "../lib/loadPipeline";
 import { getColumns, isLoaded } from "../lib/dataset";
 import { getSqlSchemaDescription, runSql, stripTrailingLimit } from "../lib/duckdb";
 import { generateSql, streamAnswer, isGeminiConfigured, type ChatTurn } from "../lib/gemini";
+import { decodeBase64Utf8 } from "../lib/base64";
 import type { ChatMessage } from "../types";
 import Header from "../components/Header";
 import ChatBubble from "../components/ChatBubble";
@@ -17,10 +18,24 @@ function uid() {
 
 type LoadOutcome = "loading" | "ready" | "empty" | "error";
 
+type JamaatState = { status: "none" } | { status: "invalid" } | { status: "set"; value: string };
+
 export default function ChatPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const jamaatParam = searchParams.get("jamaat");
+
+  // Captured once on first render (a lazy initializer, not re-derived from
+  // searchParams later) so the decoded value survives the URL being
+  // scrubbed below -- and so scrubbing the URL can't accidentally flip a
+  // restricted session back to unrestricted on a later render.
+  const [jamaatState] = useState<JamaatState>(() => {
+    const raw = searchParams.get("jamaat");
+    if (!raw) return { status: "none" };
+    const decoded = decodeBase64Utf8(raw)?.trim();
+    return decoded ? { status: "set", value: decoded } : { status: "invalid" };
+  });
+  const jamaat = jamaatState.status === "set" ? jamaatState.value : null;
+
   const { meta, setMeta } = useDatasetStore();
   const [outcome, setOutcome] = useState<LoadOutcome>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -32,10 +47,25 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Scrub the (encoded) jamaat param out of the visible URL immediately --
+  // the decoded value lives only in component state from here on, so a
+  // curious/technical visitor can't read or tweak it from the address bar.
+  useEffect(() => {
+    if (searchParams.has("jamaat")) {
+      navigate("/chat", { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function ensureData() {
-      if (!jamaatParam && isLoaded() && meta) {
+      if (jamaatState.status === "invalid") {
+        setEmptyMessage("This chat link is invalid or has expired. Please request a new link.");
+        setOutcome("empty");
+        return;
+      }
+      if (!jamaat && isLoaded() && meta) {
         setOutcome("ready");
         return;
       }
@@ -43,7 +73,7 @@ export default function ChatPage() {
         onStage: (_s: string, label?: string) => !cancelled && setLoadLabel(label || "Loading..."),
         onError: () => {},
       };
-      const result = jamaatParam ? await loadForChatRestricted(cb, jamaatParam) : await loadForChat(cb);
+      const result = jamaat ? await loadForChatRestricted(cb, jamaat) : await loadForChat(cb);
       if (cancelled) return;
       if (result.kind === "ready") {
         setMeta(result.meta);
@@ -61,7 +91,7 @@ export default function ChatPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jamaatParam]);
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -176,7 +206,7 @@ export default function ChatPage() {
         <p className="text-sm text-zinc-400 max-w-sm">
           {emptyMessage ?? "Ask your administrator to upload the HR dataset before you can start chatting."}
         </p>
-        {!jamaatParam && (
+        {jamaatState.status === "none" && (
           <button
             onClick={() => navigate("/")}
             className="mt-2 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 underline"
@@ -205,7 +235,7 @@ export default function ChatPage() {
 
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <Header fileName={meta?.fileName} personCount={meta?.personCount} jamaat={jamaatParam ?? undefined} />
+      <Header fileName={meta?.fileName} personCount={meta?.personCount} jamaat={jamaat ?? undefined} />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-4 min-h-full">
