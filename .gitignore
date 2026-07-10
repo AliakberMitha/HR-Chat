@@ -25,6 +25,9 @@ Data.xlsx
 *.xls
 !public/**/*.xlsx
 
+# Claude Code local session state
+.claude/scheduled_tasks.lock
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

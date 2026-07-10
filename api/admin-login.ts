@@ -1,5 +1,28 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { signToken, safeEqual } from "./lib/auth";
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+const TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+function getSecret(): string {
+  const secret = process.env.ADMIN_SESSION_SECRET;
+  if (!secret) {
+    throw new Error("ADMIN_SESSION_SECRET is not configured on the server.");
+  }
+  return secret;
+}
+
+function signToken(): string {
+  const expires = Date.now() + TTL_MS;
+  const payload = String(expires);
+  const sig = createHmac("sha256", getSecret()).update(payload).digest("hex");
+  return Buffer.from(`${payload}.${sig}`).toString("base64url");
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const ah = createHmac("sha256", "cmp").update(a).digest();
+  const bh = createHmac("sha256", "cmp").update(b).digest();
+  return ah.length === bh.length && timingSafeEqual(ah, bh);
+}
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
   try {
