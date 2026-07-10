@@ -3,9 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { useDatasetStore } from "../store/useDatasetStore";
 import { loadForChat } from "../lib/loadPipeline";
-import { getColumns, getAllProfiles, isLoaded, searchDataset } from "../lib/dataset";
-import { planQuery, streamAnswer, isGeminiConfigured, type ChatTurn } from "../lib/gemini";
-import { executeQuery, type QueryPlan } from "../lib/queryEngine";
+import { getColumns, isLoaded } from "../lib/dataset";
+import { getSqlSchemaDescription, runSql } from "../lib/duckdb";
+import { generateSql, streamAnswer, isGeminiConfigured, type ChatTurn } from "../lib/gemini";
 import type { ChatMessage } from "../types";
 import Header from "../components/Header";
 import ChatBubble from "../components/ChatBubble";
@@ -100,36 +100,27 @@ export default function ChatPage() {
       }
 
       const columns = getColumns();
-      let plan: QueryPlan;
+      let sql: string;
       try {
-        plan = await planQuery(question, columns, history);
-      } catch {
-        // Fall back to plain keyword search if the planning call fails for any reason.
-        plan = { intent: "search", keywords: [], filters: [], groupByField: null, metricField: null };
+        sql = await generateSql(question, getSqlSchemaDescription(columns), history);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to interpret the question.";
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, isStreaming: false, error: true, content: message } : m)),
+        );
+        setSending(false);
+        return;
       }
 
-      const result = executeQuery(plan, getAllProfiles(), columns);
-
-      let sample = result.sample;
-      let keywords = plan.keywords;
-      if (plan.intent === "list" || plan.intent === "search") {
-        const ranked = searchDataset(question);
-        if (ranked.profiles.length > 0) {
-          sample = ranked.profiles;
-          keywords = ranked.keywords.length ? ranked.keywords : keywords;
-        }
-      }
-
-      if (result.totalMatches === 0 && sample.length === 0) {
+      let queryResult;
+      try {
+        queryResult = await runSql(sql);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to run the generated query.";
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? {
-                  ...m,
-                  isStreaming: false,
-                  content:
-                    "I couldn't find any records in the dataset matching that. Try mentioning a specific skill, course, designation, team, or Umoor.",
-                }
+              ? { ...m, isStreaming: false, error: true, content: `${message}\n\nGenerated SQL:\n${sql}`, sql }
               : m,
           ),
         );
@@ -137,28 +128,19 @@ export default function ChatPage() {
         return;
       }
 
+      const totalRowCount = queryResult.rows.length;
+      const capped = queryResult.rows.slice(0, 200);
+
       try {
         let acc = "";
-        for await (const chunk of streamAnswer(question, plan, result, sample, columns, history)) {
+        for await (const chunk of streamAnswer(question, sql, capped, totalRowCount, history)) {
           acc += chunk;
           const snapshot = acc;
           setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: snapshot } : m)));
         }
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId
-              ? {
-                  ...m,
-                  isStreaming: false,
-                  matchedProfiles: sample,
-                  matchedColumns: columns,
-                  searchKeywords: keywords,
-                  totalMatches: result.totalMatches,
-                  breakdown: result.breakdown,
-                  averageField: result.average?.field,
-                  averageValue: result.average?.value,
-                }
-              : m,
+            m.id === assistantId ? { ...m, isStreaming: false, sql, resultRows: capped, totalRowCount } : m,
           ),
         );
       } catch (err) {

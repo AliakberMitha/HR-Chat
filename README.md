@@ -20,20 +20,19 @@ per-question exact computation all happen in the browser.
    list. This is what makes "how many people..." questions come out correct instead of
    over-counting anyone with more than one role.
 3. **Chat page** (`/chat`) — open to anyone with the link, no login. On load it downloads the
-   published dataset chunks and rebuilds the person profiles (caching in IndexedDB so repeat visits
-   are instant unless the admin publishes a newer file). Each question goes through two Gemini
-   calls:
-   - **Query planning** — a small, cheap call classifies the question's intent (count / breakdown /
-     average / find-a-person) and extracts keywords, filters, a group-by field, or a metric field,
-     as strict JSON (Gemini's structured-output / JSON-schema mode).
-   - **Local exact execution** — that plan is run directly against the full in-memory dataset
-     (linear scan, no sampling) to get an exact total count, group breakdown, or average — this is
-     the part that makes numeric answers trustworthy rather than an LLM eyeballing a sample.
-   - **Answer generation** — the exact numbers, plus a relevant sample of individual records (either
-     a full-text-search-ranked sample for "find the best person" questions, or a plain filtered
-     sample for count/breakdown/average questions), are sent to Gemini to phrase the final streamed
-     answer. Click **Show details** under any answer to see the exact totals/breakdown and which
-     records were used.
+   published dataset chunks, rebuilds the person profiles, and loads them into an in-browser SQL
+   database (**DuckDB-WASM**, two tables: `people` and `assignments`) — caching the raw data in
+   IndexedDB so repeat visits are instant unless the admin publishes a newer file. Each question
+   goes through:
+   - **Text-to-SQL** — a small, cheap Gemini call writes a single read-only SQL query against the
+     `people`/`assignments` schema to answer the question — this handles arbitrary compound
+     questions (multi-group-by, HAVING, top-N, joins) that a fixed query-plan schema can't.
+   - **Exact execution** — that SQL runs directly against the full dataset via DuckDB-WASM (no
+     sampling), so counts, ratios, breakdowns, and averages are real numbers, not an LLM eyeballing
+     a sample.
+   - **Answer generation** — the exact SQL result rows are sent to Gemini to phrase the final
+     streamed answer. Click **Show details** under any answer to see the exact SQL query that ran
+     and its result rows.
 
 ## Getting started
 
@@ -111,8 +110,9 @@ domain in Google AI Studio.
 ## Tech stack
 
 React + TypeScript + Vite, Tailwind CSS v4, Framer Motion, SheetJS (`xlsx`, patched build from the
-SheetJS CDN — the npm-published `xlsx` package has unpatched CVEs), FlexSearch for in-browser
-full-text search, Zustand for UI state, idb-keyval for IndexedDB caching, react-markdown for
-rendering answers, `@vercel/blob` for shared dataset storage, and four Vercel serverless functions
-(`api/admin-login.ts`, `api/dataset-upload-chunk.ts`, `api/dataset-set-current.ts`,
-`api/dataset.ts`) for admin auth and publishing.
+SheetJS CDN — the npm-published `xlsx` package has unpatched CVEs), **DuckDB-WASM** for in-browser
+SQL analytics (loaded from jsDelivr's CDN bundle at runtime, not self-hosted), Zustand for UI
+state, idb-keyval for IndexedDB caching, react-markdown for rendering answers, `@vercel/blob` for
+shared dataset storage, and four Vercel serverless functions (`api/admin-login.ts`,
+`api/dataset-upload-chunk.ts`, `api/dataset-set-current.ts`, `api/dataset.ts`) for admin auth and
+publishing.

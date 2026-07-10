@@ -1,4 +1,5 @@
-import { setDataset, buildIndex, getProfileCount, getColumns } from "./dataset";
+import { setDataset, getProfileCount, getColumns, getAllProfiles } from "./dataset";
+import { loadProfilesIntoSql } from "./duckdb";
 import { saveDataset, loadDataset } from "./persist";
 import { fetchRemotePointer, downloadRemoteDataset } from "./remoteDataset";
 import type { DatasetMeta } from "../types";
@@ -39,10 +40,8 @@ export function parseFile(file: File, cb: PipelineCallbacks): Promise<ParsedFile
           worker.terminate();
           try {
             setDataset(msg.columns, msg.rows);
-            cb.onStage("indexing", "Building search index...");
-            await buildIndex((done, total) => {
-              cb.onStage("indexing", `Indexing rows... ${done.toLocaleString()} / ${total.toLocaleString()}`);
-            });
+            cb.onStage("indexing", "Loading into the query engine...");
+            await loadProfilesIntoSql(getAllProfiles(), getColumns());
 
             const meta: DatasetMeta = {
               fileName: file.name,
@@ -140,9 +139,7 @@ export async function loadForChat(cb: PipelineCallbacks): Promise<ChatLoadResult
 
 async function hydrateFromRows(meta: DatasetMeta, rows: Record<string, string>[], cb: PipelineCallbacks) {
   setDataset(meta.columns, rows);
-  cb.onStage("indexing", "Building search index...");
-  await buildIndex((done, total) => {
-    cb.onStage("indexing", `Indexing rows... ${done.toLocaleString()} / ${total.toLocaleString()}`);
-  });
+  cb.onStage("indexing", "Loading into the query engine...");
+  await loadProfilesIntoSql(getAllProfiles(), getColumns());
   cb.onStage("ready", "Done");
 }

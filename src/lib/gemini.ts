@@ -1,21 +1,5 @@
-import type { PersonProfile } from "./profiles";
-import { profileAssignmentText } from "./profiles";
-import type { QueryPlan, QueryResult } from "./queryEngine";
-
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
 const MODEL = (import.meta.env.VITE_GEMINI_MODEL as string | undefined) || "gemini-2.5-flash";
-
-// Fields never sent to the Gemini API even though they're shown locally in
-// the "Show details" table — keeps direct contact PII off a third-party API.
-const PRIVATE_FIELDS = new Set(["Mobile", "Email"]);
-const ASSIGNMENT_FIELDS = new Set(["Umoor", "Team", "Level"]);
-const NUMERIC_FIELDS = [
-  "Age",
-  "360 degree feedback data (Leadership)",
-  "360 degree feedback data (Behaviour)",
-  "360 degree feedback data (Teamwork)",
-  "360 degree feedback data (Dedication)",
-];
 
 export function isGeminiConfigured() {
   return Boolean(API_KEY);
@@ -38,111 +22,77 @@ function requireApiKey() {
   }
 }
 
-// --- Query planning -------------------------------------------------------
+// --- Text-to-SQL ------------------------------------------------------------
 // A small, cheap, non-streaming call that turns the user's free-text question
-// into a structured plan the app can execute exactly against the full local
-// dataset, rather than asking the model to eyeball-count from a sample.
+// into a single read-only DuckDB SQL query, which the app then executes
+// exactly against the full in-browser dataset -- so counts, ratios,
+// breakdowns, and averages are real numbers, not an LLM eyeballing a sample.
 
-const PLAN_SYSTEM_INSTRUCTION = `You are a query planner for an internal HR personnel dataset. Turn the
-user's question into a structured plan for how to answer it precisely from the data. Output must match
-the given JSON schema exactly.
+const SQL_SYSTEM_INSTRUCTION = `You write a single read-only DuckDB SQL query (SELECT or WITH ... SELECT
+only) to answer a question about an internal HR personnel dataset, given this schema:
 
-Intent guide:
-- "count": pure "how many people..." / "count of people with X" questions.
-- "breakdown": ratio / distribution / "how many per X" / "breakdown by X" questions.
-- "average": "average <numeric field> of..." / "mean ... of ..." questions.
-- "list" or "search": anything asking to find, recommend, compare, or shortlist specific people
-  (e.g. "find the best person for...", "who is skilled in...", "compare candidates for...").
-  This is the default when the question isn't a count/ratio/average question.
+{{SCHEMA}}
 
 Rules:
-- "keywords": free-text terms to substring-match against skill/course/hobby/etc. fields. Use short,
-  singular, lowercase-friendly terms (e.g. "videography" not "people skilled in videography").
-- "filters": exact-ish filters on categorical fields as {field, value} pairs (e.g. Gender=Male,
-  Jamiat=Pakistan, Umoor=Umoor Al-Amlaak). Only include a filter if the question clearly names that value.
-- "groupByField": set only for "breakdown" intent — the single field to group/count by.
-- "metricField": set only for "average" intent — must be exactly one of: Age, "360 degree feedback data
-  (Leadership)", "360 degree feedback data (Behaviour)", "360 degree feedback data (Teamwork)", "360
-  degree feedback data (Dedication)".
-- Umoor, Team, and Level are multi-valued per person (one person can hold several roles at once) — still
-  usable as filters/groupByField, matched against any of a person's roles.
-- Leave filters empty and groupByField/metricField null when not applicable. Never invent field names
-  outside the provided column list.`;
+- Output only the SQL query as plain text -- no markdown code fences, no explanation, no trailing semicolon issues.
+- Use ONLY the columns listed above; never invent column or table names.
+- ALWAYS use case-insensitive substring matching (ILIKE '%value%') for EVERY text/categorical filter --
+  never exact equality (=) on a VARCHAR column. This includes jamiat, gender, umoor, team, level,
+  designation, occupation, and every other text column. Real values are often longer or differently-cased
+  than how a person names them in a question (e.g. someone might say "Al-Amlaak" when the stored value is
+  "Umoor Al-Amlaak", or "pakistan" when it's stored "Pakistan") -- ILIKE '%...%' handles this; exact '='
+  silently returns zero rows and produces a wrong "nobody matches" answer.
+- Umoor/Team/Level live only in the assignments table (one row per person-role; a person can hold several
+  roles at once, so a plain JOIN duplicates that person once per matching role).
+  - If you only need to FILTER people by Umoor/Team/Level (not display or group by the role itself),
+    use a semi-join instead of a JOIN so each person appears once:
+    WHERE itsid IN (SELECT itsid FROM assignments WHERE umoor ILIKE '%...%')
+  - Only use an actual JOIN when the query also needs to SELECT or GROUP BY umoor/team/level values
+    themselves, and add SELECT DISTINCT (or GROUP BY all selected people columns) if you still want one
+    row per person rather than one row per matching role.
+- When the question is about finding/recommending/comparing specific people, SELECT the relevant people
+  columns directly (not just itsid) and LIMIT to a reasonable number (20-50) ordered sensibly (e.g. by a
+  relevant score DESC) so there's enough to reason over without being excessive.
+- When the question is a pure count of PEOPLE, use COUNT(DISTINCT itsid).
+- When the question asks for a ratio, percentage, or breakdown, GROUP BY the relevant column and return
+  counts per group (let the app's answer step compute ratios/percentages from the counts).
+- When averaging a nullable numeric column, the NULLs (unrecorded values) are already excluded by AVG --
+  also return COUNT(<column>) alongside AVG(<column>) so the answer can state how many people the average
+  is based on versus the total matched.
+- If the question can't be answered from this schema, output: SELECT 'unanswerable' AS error`;
 
-const PLAN_SCHEMA = {
-  type: "OBJECT",
-  properties: {
-    intent: { type: "STRING", enum: ["count", "breakdown", "average", "list", "search"] },
-    keywords: { type: "ARRAY", items: { type: "STRING" } },
-    filters: {
-      type: "ARRAY",
-      items: {
-        type: "OBJECT",
-        properties: {
-          field: { type: "STRING" },
-          value: { type: "STRING" },
-        },
-        required: ["field", "value"],
-      },
-    },
-    groupByField: { type: "STRING", nullable: true },
-    metricField: { type: "STRING", nullable: true },
-  },
-  required: ["intent", "keywords", "filters", "groupByField", "metricField"],
-};
-
-export async function planQuery(question: string, columns: string[], history: ChatTurn[]): Promise<QueryPlan> {
+export async function generateSql(question: string, schemaDescription: string, history: ChatTurn[]): Promise<string> {
   requireApiKey();
 
-  const fieldList = columns.filter((c) => c !== "ITSID" && !PRIVATE_FIELDS.has(c)).join(", ");
-  const prompt = `Available fields: ${fieldList}
-Numeric metric fields: ${NUMERIC_FIELDS.map((f) => `"${f}"`).join(", ")}
-
-${history.length ? `Recent conversation:\n${history.slice(-4).map((h) => `${h.role}: ${h.content}`).join("\n")}\n\n` : ""}Question: ${question}`;
+  const systemInstruction = SQL_SYSTEM_INSTRUCTION.replace("{{SCHEMA}}", schemaDescription);
+  const prompt = `${history.length ? `Recent conversation:\n${history.slice(-4).map((h) => `${h.role}: ${h.content}`).join("\n")}\n\n` : ""}Question: ${question}`;
 
   const res = await fetch(apiUrl("generateContent"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      systemInstruction: { role: "system", parts: [{ text: PLAN_SYSTEM_INSTRUCTION }] },
-      generationConfig: {
-        temperature: 0,
-        responseMimeType: "application/json",
-        responseSchema: PLAN_SCHEMA,
-      },
+      systemInstruction: { role: "system", parts: [{ text: systemInstruction }] },
+      generationConfig: { temperature: 0 },
     }),
   });
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    throw new Error(`Gemini query-planning error (${res.status}): ${errText || res.statusText}`);
+    throw new Error(`Gemini SQL-generation error (${res.status}): ${errText || res.statusText}`);
   }
 
   const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini did not return a query plan.");
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined;
+  if (!text) throw new Error("Gemini did not return a SQL query.");
 
-  let parsed: Partial<QueryPlan>;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error("Gemini returned an invalid query plan.");
-  }
-
-  const validIntents = new Set(["count", "breakdown", "average", "list", "search"]);
-  return {
-    intent: validIntents.has(parsed.intent as string) ? (parsed.intent as QueryPlan["intent"]) : "search",
-    keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter((k) => typeof k === "string") : [],
-    filters: Array.isArray(parsed.filters)
-      ? parsed.filters.filter(
-          (f): f is { field: string; value: string } =>
-            !!f && typeof f.field === "string" && typeof f.value === "string",
-        )
-      : [],
-    groupByField: typeof parsed.groupByField === "string" ? parsed.groupByField : null,
-    metricField: typeof parsed.metricField === "string" ? parsed.metricField : null,
-  };
+  return text
+    .trim()
+    .replace(/^```sql\s*/i, "")
+    .replace(/^```\s*/, "")
+    .replace(/```\s*$/, "")
+    .replace(/;+\s*$/, "")
+    .trim();
 }
 
 // --- Final answer -----------------------------------------------------------
@@ -150,69 +100,33 @@ ${history.length ? `Recent conversation:\n${history.slice(-4).map((h) => `${h.ro
 const ANSWER_SYSTEM_INSTRUCTION = `You are an HR staffing assistant for a Head Office, helping find the
 right person for the right task and answer analytical questions from an internal personnel dataset.
 
-You are given two things:
-1. Pre-computed EXACT statistics from the FULL dataset (total counts, breakdowns, averages). These are
-   authoritative and already correct — state them precisely. Never recompute, round differently, estimate,
-   or contradict them.
-2. A JSON sample of individual candidate/person records for qualitative detail and citation. This sample
-   may be smaller than the total match count — never imply it is the complete list unless the sample size
-   equals the stated total.
+You are given the exact SQL query that was run against the full dataset and its exact result rows (as
+JSON). This result is authoritative and already correct -- state numbers from it precisely, never
+recompute, round differently, estimate, or contradict them.
 
 Rules:
-- If exact statistics (count/breakdown/average) are provided, lead your answer with those precise numbers.
-- When citing individuals, state their Name and ITSID, and briefly justify with specific fields (skills,
-  courses, feedback scores, roles, etc).
-- If an average fact is given, it fully and sufficiently answers any average/mean question about that
-  metric for the filters already applied — never claim a "specific" or "more precise" average is
-  unavailable, and never add a hedge implying the number might not apply to the requested subset; it does.
-- An average computed from fewer records than the total match count means most people don't have that
-  field filled in — mention the sample size the average is based on (e.g. "526 of 4,586 people have a
-  recorded score").
-- A person's "Roles" field lists every Umoor/Team/Level assignment they hold — they can hold several.
-- If nothing in the provided data answers the question, say so plainly — do not guess.
-- Keep answers concise and scannable: short paragraphs, bullet points, or a small table when comparing
-  several people or presenting a breakdown.
-- Do not mention phone numbers or emails since that data isn't provided to you.`;
-
-function profilesToContext(profiles: PersonProfile[], columns: string[]): string {
-  const cols = columns.filter((c) => !PRIVATE_FIELDS.has(c) && !ASSIGNMENT_FIELDS.has(c));
-  const compact = profiles.map((p) => {
-    const obj: Record<string, string> = {};
-    for (const c of cols) {
-      if (p.fields[c]) obj[c] = p.fields[c];
-    }
-    const roles = profileAssignmentText(p);
-    if (roles) obj.Roles = roles;
-    return obj;
-  });
-  return JSON.stringify(compact);
-}
-
-function factsSummary(plan: QueryPlan, result: QueryResult): string {
-  const lines = [`Total matching records in the full dataset: ${result.totalMatches}`];
-  if (result.breakdown && plan.groupByField) {
-    lines.push(`Breakdown by ${plan.groupByField} (all groups, exact counts): ${JSON.stringify(result.breakdown)}`);
-  }
-  if (result.average && plan.metricField) {
-    lines.push(
-      `Average of "${plan.metricField}": ${result.average.value.toFixed(2)}, computed from ${result.average.count} of ${result.totalMatches} matching records that have a recorded value.`,
-    );
-  }
-  return lines.join("\n");
-}
+- Lead with the precise number(s) from the result when the question asks for a count, ratio, breakdown, or average.
+- When citing individuals, state their name and itsid, and briefly justify with specific fields (skills, courses, feedback scores, roles, etc).
+- A count column named with "AVG" alongside a "COUNT" of the same metric means the average is based on
+  only the people who have that value recorded, out of a larger total -- mention both numbers if both are present.
+- When ranking or comparing groups by an average, explicitly flag any group whose supporting count is very
+  small (roughly under 10) -- a small sample can top a ranking by chance and that's misleading to present
+  without the caveat.
+- If the result is empty or the query indicates the question is unanswerable from this data, say so plainly -- do not guess.
+- Keep answers concise and scannable: short paragraphs, bullet points, or a small table when comparing several people or presenting a breakdown.
+- Do not mention phone numbers or emails -- that data isn't provided to you.`;
 
 export async function* streamAnswer(
   question: string,
-  plan: QueryPlan,
-  result: QueryResult,
-  sampleProfiles: PersonProfile[],
-  columns: string[],
+  sql: string,
+  resultRows: Record<string, unknown>[],
+  totalRowCount: number,
   history: ChatTurn[],
 ): AsyncGenerator<string, void, unknown> {
   requireApiKey();
 
-  const facts = factsSummary(plan, result);
-  const sampleJson = profilesToContext(sampleProfiles, columns);
+  const resultJson = JSON.stringify(resultRows);
+  const truncatedNote = resultRows.length < totalRowCount ? ` (showing ${resultRows.length} of ${totalRowCount} result rows)` : "";
 
   const contents = [
     ...history.slice(-8).map((h) => ({
@@ -223,7 +137,7 @@ export async function* streamAnswer(
       role: "user",
       parts: [
         {
-          text: `${facts}\n\nSample candidate records (JSON, ${sampleProfiles.length} of ${result.totalMatches} total shown):\n${sampleJson}\n\nQuestion: ${question}`,
+          text: `SQL query run:\n${sql}\n\nResult${truncatedNote}:\n${resultJson}\n\nQuestion: ${question}`,
         },
       ],
     },
