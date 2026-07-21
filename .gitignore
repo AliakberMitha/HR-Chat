@@ -38,3 +38,6 @@ Data.xlsx
 *.njsproj
 *.sln
 *.sw?
+
+.vercel
+.env*

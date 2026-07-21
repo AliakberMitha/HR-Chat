@@ -23,7 +23,7 @@ export interface QuestionLogQuery {
   dateTo?: string; // yyyy-mm-dd
 }
 
-export async function fetchQuestionLog(params: QuestionLogQuery): Promise<QuestionLogResponse> {
+export async function fetchQuestionLog(params: QuestionLogQuery, signal?: AbortSignal): Promise<QuestionLogResponse> {
   const token = getAdminToken();
   if (!token) throw new Error("You're not signed in as admin.");
 
@@ -39,6 +39,7 @@ export async function fetchQuestionLog(params: QuestionLogQuery): Promise<Questi
 
   const res = await fetch(`/api/question-log?${qs.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal,
   });
   if (!res.ok) {
     const data = await parseJsonResponse<{ error?: string }>(res).catch(() => ({}) as { error?: string });

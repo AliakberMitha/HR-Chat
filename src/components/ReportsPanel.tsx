@@ -35,18 +35,18 @@ export default function ReportsPanel() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    const t = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 300);
     return () => clearTimeout(t);
   }, [searchInput]);
 
   useEffect(() => {
-    setPage(1);
-  }, [jamaatFilter, search, dateFrom, dateTo, sortBy, sortDir, pageSize]);
-
-  useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
-    fetchQuestionLog({ page, pageSize, sortBy, sortDir, jamaat: jamaatFilter, search, dateFrom, dateTo })
+    fetchQuestionLog({ page, pageSize, sortBy, sortDir, jamaat: jamaatFilter, search, dateFrom, dateTo }, controller.signal)
       .then((res) => {
         if (cancelled) return;
         setData(res);
@@ -61,6 +61,7 @@ export default function ReportsPanel() {
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [jamaatFilter, search, dateFrom, dateTo, sortBy, sortDir, page, pageSize]);
 
@@ -70,6 +71,7 @@ export default function ReportsPanel() {
     from.setDate(from.getDate() - (days - 1));
     setDateFrom(toDateInput(from));
     setDateTo(toDateInput(to));
+    setPage(1);
   };
 
   const clearFilters = () => {
@@ -77,6 +79,7 @@ export default function ReportsPanel() {
     setSearchInput("");
     setDateFrom("");
     setDateTo("");
+    setPage(1);
   };
 
   const toggleSort = (field: SortField) => {
@@ -86,6 +89,7 @@ export default function ReportsPanel() {
       setSortBy(field);
       setSortDir(field === "ts" ? "desc" : "asc");
     }
+    setPage(1);
   };
 
   const total = data?.total ?? 0;
@@ -103,7 +107,10 @@ export default function ReportsPanel() {
           <label className="text-xs text-zinc-400">Jamaat</label>
           <select
             value={jamaatFilter}
-            onChange={(e) => setJamaatFilter(e.target.value)}
+            onChange={(e) => {
+              setJamaatFilter(e.target.value);
+              setPage(1);
+            }}
             className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-transparent px-2.5 py-1.5 text-sm outline-none focus:border-zinc-400 dark:focus:border-zinc-600"
           >
             <option value="">All jamaats</option>
@@ -130,7 +137,10 @@ export default function ReportsPanel() {
           <input
             type="date"
             value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
+            onChange={(e) => {
+              setDateFrom(e.target.value);
+              setPage(1);
+            }}
             className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-transparent px-2.5 py-1.5 text-sm outline-none focus:border-zinc-400 dark:focus:border-zinc-600"
           />
         </div>
@@ -139,7 +149,10 @@ export default function ReportsPanel() {
           <input
             type="date"
             value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setPage(1);
+            }}
             className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-transparent px-2.5 py-1.5 text-sm outline-none focus:border-zinc-400 dark:focus:border-zinc-600"
           />
         </div>
@@ -232,7 +245,10 @@ export default function ReportsPanel() {
             <div className="flex items-center gap-2">
               <select
                 value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
                 className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-transparent px-2 py-1 text-xs outline-none"
               >
                 {PAGE_SIZES.map((n) => (

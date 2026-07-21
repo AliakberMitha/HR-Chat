@@ -7,31 +7,42 @@ export interface QuestionLogEntry {
   question: string;
 }
 
-const LOG_PATH = "question-log.json";
-// Bounds how large the log blob can grow; oldest entries are dropped past this.
-const MAX_ENTRIES = 20000;
+// One blob per entry rather than a single read-modify-write JSON array: two
+// questions logged close together (by different people, or even the same
+// person in quick succession) would otherwise race on the shared blob and
+// silently drop whichever write lost the race. A unique path per entry makes
+// every write independent -- there is nothing to clobber.
+const LOG_PREFIX = "question-log/";
 
 export async function readLog(): Promise<QuestionLogEntry[]> {
-  const { blobs } = await list({ prefix: LOG_PATH, limit: 1 });
-  const pointer = blobs.find((b) => b.pathname === LOG_PATH);
-  if (!pointer) return [];
+  const entries: QuestionLogEntry[] = [];
+  let cursor: string | undefined;
 
-  const res = await fetch(pointer.url, { cache: "no-store" });
-  if (!res.ok) return [];
+  do {
+    const result = await list({ prefix: LOG_PREFIX, cursor, limit: 1000 });
+    const fetched = await Promise.all(
+      result.blobs.map(async (b) => {
+        try {
+          const res = await fetch(b.url, { cache: "no-store" });
+          if (!res.ok) return null;
+          return (await res.json()) as QuestionLogEntry;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    for (const e of fetched) if (e) entries.push(e);
+    cursor = result.hasMore ? result.cursor : undefined;
+  } while (cursor);
 
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  return entries;
 }
 
 export async function appendLogEntry(entry: QuestionLogEntry): Promise<void> {
-  const entries = await readLog();
-  entries.push(entry);
-  const trimmed = entries.length > MAX_ENTRIES ? entries.slice(entries.length - MAX_ENTRIES) : entries;
-
-  await put(LOG_PATH, JSON.stringify(trimmed), {
+  await put(`${LOG_PREFIX}${entry.ts}-${entry.id}.json`, JSON.stringify(entry), {
     access: "public",
     addRandomSuffix: false,
-    allowOverwrite: true,
+    allowOverwrite: false,
     contentType: "application/json",
   });
 }
