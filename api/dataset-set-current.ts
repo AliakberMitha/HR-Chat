@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { put } from "@vercel/blob";
-import { verifyAdminToken } from "../lib/adminToken";
+import { verifyAdminToken } from "../server-shared/adminToken.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {

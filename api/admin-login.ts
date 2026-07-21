@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { signAdminToken } from "../lib/adminToken";
+import { signAdminToken } from "../server-shared/adminToken.js";
 
 function safeEqual(a: string, b: string): boolean {
   const ah = createHmac("sha256", "cmp").update(a).digest();
