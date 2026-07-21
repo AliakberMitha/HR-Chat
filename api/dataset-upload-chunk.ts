@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { put } from "@vercel/blob";
-import { extractBearerToken, verifyAdminToken } from "./_lib/adminToken";
+import { extractBearerToken, verifyAdminToken } from "../lib/adminToken";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {

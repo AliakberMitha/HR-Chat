@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { randomUUID } from "node:crypto";
-import { appendLogEntry } from "./_lib/questionLogStore";
+import { appendLogEntry } from "../lib/questionLogStore";
 
 const MAX_QUESTION_LEN = 2000;
 

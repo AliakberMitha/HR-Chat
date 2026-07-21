@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { extractBearerToken, verifyAdminToken } from "./_lib/adminToken";
-import { readLog, type QuestionLogEntry } from "./_lib/questionLogStore";
+import { extractBearerToken, verifyAdminToken } from "../lib/adminToken";
+import { readLog, type QuestionLogEntry } from "../lib/questionLogStore";
 
 function monthKey(ts: number): string {
   const d = new Date(ts);
