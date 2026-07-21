@@ -2,10 +2,12 @@ export default function Header({
   fileName,
   personCount,
   jamaat,
+  onReset,
 }: {
   fileName?: string;
   personCount?: number;
   jamaat?: string;
+  onReset?: () => void;
 }) {
   return (
     <header className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-4 py-3 flex items-center justify-between">
@@ -25,11 +27,31 @@ export default function Header({
           )}
         </div>
       </div>
-      {jamaat && (
-        <span className="shrink-0 text-xs rounded-lg bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 px-2.5 py-1">
-          Scoped to {jamaat}
-        </span>
-      )}
+      <div className="flex items-center gap-2 shrink-0">
+        {jamaat && (
+          <span className="text-xs rounded-lg bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 px-2.5 py-1">
+            Scoped to {jamaat}
+          </span>
+        )}
+        {onReset && (
+          <button
+            onClick={onReset}
+            title="Reset chat"
+            aria-label="Reset chat"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 dark:hover:text-zinc-300 dark:hover:bg-zinc-900 transition-colors"
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none">
+              <path
+                d="M20 11A8 8 0 1 0 18.5 15.5M20 11V5m0 6h-6"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        )}
+      </div>
     </header>
   );
 }

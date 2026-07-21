@@ -6,6 +6,7 @@ import { parseFile, cacheLocally } from "../lib/loadPipeline";
 import { uploadRemoteDataset, fetchRemotePointer, type RemotePointer } from "../lib/remoteDataset";
 import { isGeminiConfigured } from "../lib/gemini";
 import { adminLogin, isAdminAuthed, adminLogout } from "../lib/adminAuth";
+import ReportsPanel from "../components/ReportsPanel";
 
 const ACCEPTED_EXT = [".xlsx", ".xls"];
 
@@ -14,6 +15,7 @@ export default function UploadPage() {
   const { stage, progressLabel, meta, error, setStage, setMeta, setError, reset } = useDatasetStore();
   const [dragActive, setDragActive] = useState(false);
   const [authed, setAuthed] = useState(isAdminAuthed());
+  const [tab, setTab] = useState<"upload" | "reports">("upload");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
@@ -96,7 +98,7 @@ export default function UploadPage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 px-4 py-12">
-      <div className="w-full max-w-xl">
+      <div className={`w-full ${authed && tab === "reports" ? "max-w-5xl" : "max-w-xl"}`}>
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-zinc-900 dark:bg-white mb-4">
             <svg viewBox="0 0 24 24" className="w-6 h-6 text-white dark:text-zinc-900" fill="none">
@@ -170,6 +172,25 @@ export default function UploadPage() {
               </button>
             </div>
 
+            <div className="flex items-center gap-1 mb-5 border-b border-zinc-200 dark:border-zinc-800">
+              {(["upload", "reports"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                    tab === t
+                      ? "border-zinc-900 dark:border-white text-zinc-900 dark:text-white"
+                      : "border-transparent text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                  }`}
+                >
+                  {t === "upload" ? "Upload" : "Reports"}
+                </button>
+              ))}
+            </div>
+
+            {tab === "reports" ? (
+              <ReportsPanel />
+            ) : (
             <AnimatePresence mode="wait">
               {stage === "ready" && meta ? (
                 <motion.div
@@ -262,6 +283,7 @@ export default function UploadPage() {
                 </motion.div>
               )}
             </AnimatePresence>
+            )}
           </>
         )}
       </div>

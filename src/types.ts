@@ -16,3 +16,25 @@ export interface ChatMessage {
   isStreaming?: boolean;
   error?: boolean;
 }
+
+export interface QuestionLogEntry {
+  id: string;
+  ts: number;
+  jamaat: string | null;
+  question: string;
+}
+
+export interface QuestionLogMonthlyCount {
+  month: string; // "YYYY-MM"
+  count: number;
+}
+
+export interface QuestionLogResponse {
+  entries: QuestionLogEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+  distinctJamaats: string[];
+  hasUnrestricted: boolean;
+  monthly: QuestionLogMonthlyCount[];
+}

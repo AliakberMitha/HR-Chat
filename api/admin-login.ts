@@ -1,22 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createHmac, timingSafeEqual } from "node:crypto";
-
-const TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
-
-function getSecret(): string {
-  const secret = process.env.ADMIN_SESSION_SECRET;
-  if (!secret) {
-    throw new Error("ADMIN_SESSION_SECRET is not configured on the server.");
-  }
-  return secret;
-}
-
-function signToken(): string {
-  const expires = Date.now() + TTL_MS;
-  const payload = String(expires);
-  const sig = createHmac("sha256", getSecret()).update(payload).digest("hex");
-  return Buffer.from(`${payload}.${sig}`).toString("base64url");
-}
+import { signAdminToken } from "./_lib/adminToken";
 
 function safeEqual(a: string, b: string): boolean {
   const ah = createHmac("sha256", "cmp").update(a).digest();
@@ -45,7 +29,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    res.status(200).json({ token: signToken() });
+    res.status(200).json({ token: signAdminToken() });
   } catch (err) {
     console.error("admin-login failed:", err);
     res.status(500).json({ error: err instanceof Error ? err.message : "Unexpected server error." });

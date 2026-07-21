@@ -7,6 +7,8 @@ import { getColumns, isLoaded } from "../lib/dataset";
 import { getSqlSchemaDescription, runSql, stripTrailingLimit, getDistinctUmoors } from "../lib/duckdb";
 import { generateSql, streamAnswer, isGeminiConfigured, type ChatTurn } from "../lib/gemini";
 import { decodeBase64Utf8 } from "../lib/base64";
+import { isAdminAuthed } from "../lib/adminAuth";
+import { logQuestion } from "../lib/questionLog";
 import type { ChatMessage } from "../types";
 import Header from "../components/Header";
 import ChatBubble from "../components/ChatBubble";
@@ -20,6 +22,11 @@ type LoadOutcome = "loading" | "ready" | "empty" | "error";
 
 type JamaatState = { status: "none" } | { status: "invalid" } | { status: "set"; value: string };
 
+// sessionStorage (not localStorage) so the scope survives a reload of this
+// tab -- including the "Reset" button, which just reloads the page -- but
+// never leaks into a new tab or a future browser session.
+const JAMAAT_SESSION_KEY = "hrchat:jamaat";
+
 export default function ChatPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -27,12 +34,21 @@ export default function ChatPage() {
   // Captured once on first render (a lazy initializer, not re-derived from
   // searchParams later) so the decoded value survives the URL being
   // scrubbed below -- and so scrubbing the URL can't accidentally flip a
-  // restricted session back to unrestricted on a later render.
+  // restricted session back to unrestricted on a later render. A fresh
+  // ?jamaat= link always wins and is mirrored into sessionStorage; with no
+  // param on this load, we fall back to whatever scope this tab already had
+  // -- otherwise a plain reload (or a hard refresh) would drop the param
+  // and silently re-open the session as unrestricted.
   const [jamaatState] = useState<JamaatState>(() => {
     const raw = searchParams.get("jamaat");
-    if (!raw) return { status: "none" };
-    const decoded = decodeBase64Utf8(raw)?.trim();
-    return decoded ? { status: "set", value: decoded } : { status: "invalid" };
+    if (raw) {
+      const decoded = decodeBase64Utf8(raw)?.trim();
+      if (!decoded) return { status: "invalid" };
+      sessionStorage.setItem(JAMAAT_SESSION_KEY, decoded);
+      return { status: "set", value: decoded };
+    }
+    const stored = sessionStorage.getItem(JAMAAT_SESSION_KEY);
+    return stored ? { status: "set", value: stored } : { status: "none" };
   });
   const jamaat = jamaatState.status === "set" ? jamaatState.value : null;
 
@@ -62,6 +78,15 @@ export default function ChatPage() {
     async function ensureData() {
       if (jamaatState.status === "invalid") {
         setEmptyMessage("This chat link is invalid or has expired. Please request a new link.");
+        setOutcome("empty");
+        return;
+      }
+      // No Jamaat scope on this tab at all -- only an authenticated admin
+      // session may see the unrestricted dataset. Anyone else landing here
+      // directly (e.g. the bare /chat URL with no link) is turned away
+      // before we ever fetch the full dataset.
+      if (jamaatState.status === "none" && !isAdminAuthed()) {
+        setEmptyMessage("This chat link is missing its access scope. Please use the personalized link you were sent, or sign in as an admin to view the full dataset.");
         setOutcome("empty");
         return;
       }
@@ -104,10 +129,20 @@ export default function ChatPage() {
     el.style.height = Math.min(el.scrollHeight, 160) + "px";
   }, []);
 
+  // A real reload, not just clearing local state -- re-fetches the dataset
+  // fresh in case it's changed. The Jamaat scope survives via
+  // sessionStorage (see jamaatState above), so a restricted session stays
+  // restricted after resetting.
+  const handleReset = useCallback(() => {
+    window.location.reload();
+  }, []);
+
   const handleSend = useCallback(
     async (text: string) => {
       const question = text.trim();
       if (!question || sending) return;
+
+      logQuestion(jamaat, question);
 
       const history: ChatTurn[] = messages
         .filter((m) => !m.error)
@@ -236,7 +271,7 @@ export default function ChatPage() {
 
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <Header fileName={meta?.fileName} personCount={meta?.personCount} jamaat={jamaat ?? undefined} />
+      <Header fileName={meta?.fileName} personCount={meta?.personCount} jamaat={jamaat ?? undefined} onReset={handleReset} />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-4 min-h-full">
