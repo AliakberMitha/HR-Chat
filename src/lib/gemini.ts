@@ -1,5 +1,15 @@
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
-const MODEL = (import.meta.env.VITE_GEMINI_MODEL as string | undefined) || "gemini-3.5-flash";
+const PRIMARY_MODEL = (import.meta.env.VITE_GEMINI_MODEL as string | undefined) || "gemini-3.5-flash";
+// A different model generation on purpose -- the point of a fallback is to
+// dodge capacity issues on the primary, and a sibling from the same release
+// tends to be congested for the same reason at the same time.
+const FALLBACK_MODEL = (import.meta.env.VITE_GEMINI_FALLBACK_MODEL as string | undefined) || "gemini-3.1-flash-lite";
+
+// Only retry on the fallback model for capacity/availability failures --
+// 429 (rate limited), 500 (internal), 503 (overloaded/unavailable). A 400
+// (bad request) or 401/403 (auth) is about the request or API key, not which
+// model served it, so it would just fail the same way again on the fallback.
+const RETRYABLE_STATUS = new Set([429, 500, 503]);
 
 export function isGeminiConfigured() {
   return Boolean(API_KEY);
@@ -10,8 +20,8 @@ export interface ChatTurn {
   content: string;
 }
 
-function apiUrl(method: string) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:${method}?key=${API_KEY}`;
+function apiUrl(model: string, method: string) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:${method}?key=${API_KEY}`;
 }
 
 function requireApiKey() {
@@ -61,30 +71,50 @@ Rules:
   is based on versus the total matched.
 - If the question can't be answered from this schema, output: SELECT 'unanswerable' AS error`;
 
+async function generateContentOnce(model: string, body: string): Promise<string> {
+  const res = await fetch(apiUrl(model, "generateContent"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    const err = new Error(`Gemini SQL-generation error (${res.status}) [${model}]: ${errText || res.statusText}`);
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
+  }
+
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined;
+  if (!text) throw new Error(`Gemini did not return a SQL query. [${model}]`);
+  return text;
+}
+
 export async function generateSql(question: string, schemaDescription: string, history: ChatTurn[]): Promise<string> {
   requireApiKey();
 
   const systemInstruction = SQL_SYSTEM_INSTRUCTION.replace("{{SCHEMA}}", schemaDescription);
   const prompt = `${history.length ? `Recent conversation:\n${history.slice(-4).map((h) => `${h.role}: ${h.content}`).join("\n")}\n\n` : ""}Question: ${question}`;
 
-  const res = await fetch(apiUrl("generateContent"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      systemInstruction: { role: "system", parts: [{ text: systemInstruction }] },
-      generationConfig: { temperature: 0 },
-    }),
+  const body = JSON.stringify({
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    systemInstruction: { role: "system", parts: [{ text: systemInstruction }] },
+    generationConfig: { temperature: 0 },
   });
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(`Gemini SQL-generation error (${res.status}): ${errText || res.statusText}`);
+  let text: string;
+  try {
+    text = await generateContentOnce(PRIMARY_MODEL, body);
+  } catch (err) {
+    const status = (err as Error & { status?: number }).status;
+    if (PRIMARY_MODEL !== FALLBACK_MODEL && status !== undefined && RETRYABLE_STATUS.has(status)) {
+      console.warn(`Gemini model "${PRIMARY_MODEL}" failed (${status}); retrying with fallback "${FALLBACK_MODEL}"...`);
+      text = await generateContentOnce(FALLBACK_MODEL, body);
+    } else {
+      throw err;
+    }
   }
-
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined;
-  if (!text) throw new Error("Gemini did not return a SQL query.");
 
   return text
     .trim()
@@ -174,18 +204,32 @@ export async function* streamAnswer(
     },
   ];
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:streamGenerateContent?alt=sse&key=${API_KEY}`,
-    {
+  const body = JSON.stringify({
+    contents,
+    systemInstruction: { role: "system", parts: [{ text: buildAnswerSystemInstruction(validUmoors) }] },
+    generationConfig: { temperature: 0.3 },
+  });
+
+  const streamUrl = (model: string) =>
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${API_KEY}`;
+
+  let res = await fetch(streamUrl(PRIMARY_MODEL), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+
+  // Only worth retrying before any bytes have streamed back -- once a
+  // response is flowing, restarting on a different model would mean
+  // discarding partial output the user has already seen.
+  if (!res.ok && PRIMARY_MODEL !== FALLBACK_MODEL && RETRYABLE_STATUS.has(res.status)) {
+    console.warn(`Gemini model "${PRIMARY_MODEL}" failed (${res.status}); retrying with fallback "${FALLBACK_MODEL}"...`);
+    res = await fetch(streamUrl(FALLBACK_MODEL), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents,
-        systemInstruction: { role: "system", parts: [{ text: buildAnswerSystemInstruction(validUmoors) }] },
-        generationConfig: { temperature: 0.3 },
-      }),
-    },
-  );
+      body,
+    });
+  }
 
   if (!res.ok || !res.body) {
     const errText = await res.text().catch(() => "");
