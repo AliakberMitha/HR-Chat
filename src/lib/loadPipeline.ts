@@ -68,8 +68,17 @@ export function parseFile(file: File, cb: PipelineCallbacks): Promise<ParsedFile
   });
 }
 
+// Best-effort only: some browsers (e.g. Firefox) enforce a per-value
+// IndexedDB size cap (~127MB) that a large enough dataset can exceed.
+// Local caching only speeds up reloads / enables offline use -- it's never
+// required for the dataset to actually load -- so a failure here must
+// never surface as if the upload/download itself failed.
 export async function cacheLocally(meta: DatasetMeta, rows: Record<string, string>[]) {
-  await saveDataset(meta, rows);
+  try {
+    await saveDataset(meta, rows);
+  } catch (err) {
+    console.warn("Failed to cache dataset locally (continuing without offline cache):", err);
+  }
 }
 
 export type ChatLoadResult =
@@ -122,7 +131,7 @@ export async function loadForChat(cb: PipelineCallbacks): Promise<ChatLoadResult
       cb.onStage("parsing", `Downloading the shared dataset... ${Math.round(pct)}%`);
     });
     await hydrateFromRows(meta, rows, cb);
-    await saveDataset(meta, rows);
+    await cacheLocally(meta, rows);
     return { kind: "ready", meta };
   } catch (err) {
     if (cached) {
