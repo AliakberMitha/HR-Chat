@@ -12,6 +12,12 @@ const NUMERIC_SOURCE_COLUMNS = new Set([
   "360 degree feedback data (Behaviour)",
   "360 degree feedback data (Teamwork)",
   "360 degree feedback data (Dedication)",
+  "Years_On_Post",
+  "Years_Managing_NonPost",
+  "Years_Advisory",
+  "Total_Years_Served",
+  "Years_Left_Critical",
+  "Years_Left_Any_Post",
 ]);
 
 // Known Excel column -> clean, quote-free SQL identifier. Anything not
@@ -40,6 +46,28 @@ const KNOWN_COLUMN_MAP: Record<string, string> = {
   "360 degree feedback data (Teamwork)": "teamwork_score",
   "360 degree feedback data (Dedication)": "dedication_score",
   "LMS courses done by individual": "lms_courses",
+  Years_On_Post: "years_on_post",
+  Years_Managing_NonPost: "years_managing_nonpost",
+  Years_Advisory: "years_advisory",
+  Total_Years_Served: "total_years_served",
+  Post_Eligibility: "post_eligibility",
+  Years_Left_Critical: "years_left_critical",
+  Years_Left_Any_Post: "years_left_any_post",
+};
+
+// Richer, business-meaning descriptions for columns whose name alone doesn't
+// explain the tenure/term-limit rules -- shown to Gemini in the schema so it
+// both writes correct SQL and can explain results (e.g. what a
+// Post_Eligibility value or a Years_Left of 0 actually means) instead of
+// guessing from the column name.
+const COLUMN_DESCRIPTIONS: Record<string, string> = {
+  Years_On_Post: "years served on a CRITICAL post (Secretary / Jt. Secretary / Treasurer / Jt. Treasurer in HR & Maliyah)",
+  Years_Managing_NonPost: "years served managing any other umoor/post (non-critical)",
+  Years_Advisory: "years served in an advisory capacity (no cap)",
+  Total_Years_Served: "total years served, as given in the source tenure file (carried through unchanged; sometimes differs from the sum of the other tenure columns)",
+  Post_Eligibility: `eligibility for posts -- 'Eligible' = can hold critical & other posts; 'Non-critical roles only' = has passed 6 years on a critical post; 'Advisory / Member-L2 only' = combined Years_On_Post + Years_Managing_NonPost has reached the 9-year cap (3 terms)`,
+  Years_Left_Critical: "remaining years allowed on a critical post before hitting the term-limit cap (0 = already barred)",
+  Years_Left_Any_Post: "remaining years allowed in any post/managing role before the 9-year combined cap",
 };
 
 function slugify(col: string): string {
@@ -138,7 +166,8 @@ export function getSqlSchemaDescription(columns: string[]): string {
   const lines = peopleSourceCols.map((c) => {
     const sqlCol = sqlColumnName(c);
     const type = NUMERIC_SOURCE_COLUMNS.has(c) ? "DOUBLE (nullable -- NULL means not recorded)" : "VARCHAR";
-    return `    ${sqlCol} ${type}  -- from Excel column "${c}"`;
+    const description = COLUMN_DESCRIPTIONS[c] ?? `from Excel column "${c}"`;
+    return `    ${sqlCol} ${type}  -- ${description}`;
   });
   return `TABLE people (one row per person):
 ${lines.join("\n")}

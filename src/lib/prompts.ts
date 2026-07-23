@@ -36,4 +36,12 @@ export const PROMPT_SUGGESTIONS: PromptSuggestion[] = [
     label: "Breakdown by group",
     template: "Give me a breakdown of how many people belong to each [Umoor/Jamiat/Designation].",
   },
+  {
+    label: "Post eligibility",
+    template: "Who is eligible to hold a critical post right now, and how many years do they have left before the 9-year cap?",
+  },
+  {
+    label: "Tenure & term limits",
+    template: "Show tenure details (years on post, managing, advisory) for [Name/Umoor], including years left before term limits.",
+  },
 ];

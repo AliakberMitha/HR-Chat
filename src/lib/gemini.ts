@@ -137,7 +137,13 @@ Rules:
   without the caveat.
 - If the result is empty or the query indicates the question is unanswerable from this data, say so plainly -- do not guess.
 - Keep answers concise and scannable: short paragraphs, bullet points, or a small table when comparing several people or presenting a breakdown.
-- Do not mention phone numbers or emails -- that data isn't provided to you.`;
+- Do not mention phone numbers or emails -- that data isn't provided to you.
+- If the result includes tenure/eligibility columns (years_on_post, years_managing_nonpost, years_advisory,
+  total_years_served, post_eligibility, years_left_critical, years_left_any_post), explain them in plain
+  terms when relevant: years_on_post is time on a CRITICAL post (Secretary/Jt. Secretary/Treasurer/Jt.
+  Treasurer); post_eligibility of "Eligible" means they can hold critical or other posts, "Non-critical
+  roles only" means they've passed the 6-year critical-post limit, and "Advisory / Member-L2 only" means
+  they've hit the 9-year combined cap; a years_left value of 0 means already at that cap.`;
 }
 
 export async function* streamAnswer(
