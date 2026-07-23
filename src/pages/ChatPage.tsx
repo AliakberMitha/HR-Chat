@@ -137,6 +137,16 @@ export default function ChatPage() {
     window.location.reload();
   }, []);
 
+  // Re-runs a message's already-generated SQL against the current in-browser
+  // dataset and updates just that message's result rows -- lets the user
+  // recheck a specific answer's details without re-asking the question.
+  const handleRefreshDetails = useCallback(async (id: string, sql: string) => {
+    const result = await runSql(sql);
+    const totalRowCount = result.rows.length;
+    const allRows = result.rows.slice(0, 5000);
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, resultRows: allRows, totalRowCount } : m)));
+  }, []);
+
   const handleSend = useCallback(
     async (text: string) => {
       const question = text.trim();
@@ -271,7 +281,7 @@ export default function ChatPage() {
 
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <Header fileName={meta?.fileName} personCount={meta?.personCount} jamaat={jamaat ?? undefined} onReset={handleReset} />
+      <Header personCount={meta?.personCount} jamaat={jamaat ?? undefined} onReset={handleReset} />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-4 min-h-full">
@@ -286,7 +296,7 @@ export default function ChatPage() {
           ) : (
             <AnimatePresence initial={false}>
               {messages.map((m) => (
-                <ChatBubble key={m.id} message={m} />
+                <ChatBubble key={m.id} message={m} onRefreshDetails={handleRefreshDetails} />
               ))}
             </AnimatePresence>
           )}

@@ -1,10 +1,8 @@
 export default function Header({
-  fileName,
   personCount,
   jamaat,
   onReset,
 }: {
-  fileName?: string;
   personCount?: number;
   jamaat?: string;
   onReset?: () => void;
@@ -20,10 +18,8 @@ export default function Header({
         </div>
         <div className="min-w-0">
           <p className="text-sm font-medium leading-tight">HR Talent Chat</p>
-          {fileName && (
-            <p className="text-xs text-zinc-400 truncate leading-tight">
-              {fileName} · {personCount?.toLocaleString()} people
-            </p>
+          {personCount != null && (
+            <p className="text-xs text-zinc-400 truncate leading-tight">{personCount.toLocaleString()} people</p>
           )}
         </div>
       </div>
